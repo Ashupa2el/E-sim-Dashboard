@@ -1608,6 +1608,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Dynamic footer copyright year
+    const footerYearEl = document.getElementById('footer-year');
+    if (footerYearEl) {
+        footerYearEl.textContent = new Date().getFullYear();
+    }
+
     // Initial fetch with default date (May 25, 2026)
     fetchDashboard(DATA_BOUNDS.DEFAULT_DATE);
 });
