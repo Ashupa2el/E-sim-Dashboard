@@ -1,5 +1,32 @@
 // app.js
 
+// -- DATA BOUNDARIES & CONSTANTS --
+const DATA_BOUNDS = {
+    MIN_DATE: '2026-01-01',
+    MAX_DATE: '2026-05-31',
+    DEFAULT_DATE: '2026-05-31',
+    MIN_MONTH: '2026-01',
+    MAX_MONTH: '2026-05'
+};
+
+const clampDate = (dateStr, minStr = DATA_BOUNDS.MIN_DATE, maxStr = DATA_BOUNDS.MAX_DATE) => {
+    if (!dateStr || typeof dateStr !== 'string') return maxStr;
+    const cleanStr = dateStr.trim().split('T')[0];
+    if (!cleanStr) return maxStr;
+    if (cleanStr < minStr) return minStr;
+    if (cleanStr > maxStr) return maxStr;
+    return cleanStr;
+};
+
+const clampMonth = (monthStr, minStr = DATA_BOUNDS.MIN_MONTH, maxStr = DATA_BOUNDS.MAX_MONTH) => {
+    if (!monthStr || typeof monthStr !== 'string') return maxStr;
+    const cleanStr = monthStr.trim();
+    if (!cleanStr) return maxStr;
+    if (cleanStr < minStr) return minStr;
+    if (cleanStr > maxStr) return maxStr;
+    return cleanStr;
+};
+
 // -- STATE MANAGEMENT --
 let currentData = null;
 let chartInstances = {};
@@ -134,13 +161,30 @@ const renderKPIs = (kpiCards, performance) => {
     }
 };
 
-const renderCharts = (dailyMetrics, monthlyMetrics) => {
+const renderCharts = (dailyMetrics = [], monthlyMetrics = []) => {
+    // Shared tooltip styling
+    const tooltipStyle = {
+        enabled: true,
+        backgroundColor: 'rgba(26, 29, 39, 0.95)',
+        titleColor: '#e8eaed',
+        bodyColor: '#9aa0a6',
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderWidth: 1,
+        cornerRadius: 8,
+        padding: 10,
+        titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+        bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+        displayColors: false,
+        caretSize: 6
+    };
+
     // Shared chart options
     const commonOptions = {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-            legend: { display: false }
+            legend: { display: false },
+            tooltip: tooltipStyle
         },
         scales: {
             x: {
@@ -154,12 +198,22 @@ const renderCharts = (dailyMetrics, monthlyMetrics) => {
         }
     };
 
+    // Filter Daily Sales by bounded range selector
+    const salesStartEl = document.getElementById('daily-sales-start');
+    const salesEndEl = document.getElementById('daily-sales-end');
+    const salesStart = salesStartEl ? clampDate(salesStartEl.value) : DATA_BOUNDS.MIN_DATE;
+    const salesEnd = salesEndEl ? clampDate(salesEndEl.value) : DATA_BOUNDS.MAX_DATE;
+    const filteredDailySales = dailyMetrics.filter(d => d.order_date >= salesStart && d.order_date <= salesEnd);
+
     // Daily Sales
     const dailySalesCanvas = document.getElementById('daily-sales-chart');
     if (dailySalesCanvas) {
         safeDestroyChart('dailySales');
-        const labels = dailyMetrics.map(d => new Date(d.order_date).getDate());
-        const data = dailyMetrics.map(d => d.no_of_sales);
+        const labels = filteredDailySales.map(d => {
+            const dt = new Date(d.order_date);
+            return `${dt.getDate()} ${['Jan','Feb','Mar','Apr','May'][dt.getMonth()] || ''}`;
+        });
+        const data = filteredDailySales.map(d => d.no_of_sales);
         
         chartInstances['dailySales'] = new Chart(dailySalesCanvas, {
             type: 'bar',
@@ -172,16 +226,37 @@ const renderCharts = (dailyMetrics, monthlyMetrics) => {
                     borderRadius: 4
                 }]
             },
-            options: commonOptions
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    tooltip: {
+                        ...tooltipStyle,
+                        callbacks: {
+                            label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
+                        }
+                    }
+                }
+            }
         });
     }
+
+    // Filter Daily Revenue by bounded range selector
+    const revStartEl = document.getElementById('daily-revenue-start');
+    const revEndEl = document.getElementById('daily-revenue-end');
+    const revStart = revStartEl ? clampDate(revStartEl.value) : DATA_BOUNDS.MIN_DATE;
+    const revEnd = revEndEl ? clampDate(revEndEl.value) : DATA_BOUNDS.MAX_DATE;
+    const filteredDailyRevenue = dailyMetrics.filter(d => d.order_date >= revStart && d.order_date <= revEnd);
 
     // Daily Revenue
     const dailyRevCanvas = document.getElementById('daily-revenue-chart');
     if (dailyRevCanvas) {
         safeDestroyChart('dailyRevenue');
-        const labels = dailyMetrics.map(d => new Date(d.order_date).getDate());
-        const data = dailyMetrics.map(d => d.total_revenue);
+        const labels = filteredDailyRevenue.map(d => {
+            const dt = new Date(d.order_date);
+            return `${dt.getDate()} ${['Jan','Feb','Mar','Apr','May'][dt.getMonth()] || ''}`;
+        });
+        const data = filteredDailyRevenue.map(d => d.total_revenue);
         
         chartInstances['dailyRevenue'] = new Chart(dailyRevCanvas, {
             type: 'line',
@@ -193,23 +268,49 @@ const renderCharts = (dailyMetrics, monthlyMetrics) => {
                     borderColor: '#3b82f6',
                     backgroundColor: 'rgba(59, 130, 246, 0.2)',
                     fill: true,
-                    tension: 0.4
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 6,
+                    pointHoverBackgroundColor: '#3b82f6',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2
                 }]
             },
-            options: commonOptions
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    tooltip: {
+                        ...tooltipStyle,
+                        callbacks: {
+                            label: (ctx) => `Revenue: ${formatCurrency(ctx.raw)}`
+                        }
+                    }
+                }
+            }
         });
     }
+
+    // Filter Monthly Sales by bounded range selector
+    const monthStartEl = document.getElementById('monthly-sales-start');
+    const monthEndEl = document.getElementById('monthly-sales-end');
+    const monthStart = monthStartEl ? clampMonth(monthStartEl.value) : DATA_BOUNDS.MIN_MONTH;
+    const monthEnd = monthEndEl ? clampMonth(monthEndEl.value) : DATA_BOUNDS.MAX_MONTH;
+    const filteredMonthly = monthlyMetrics.filter(d => {
+        const m = (d.month || '').substring(0, 7);
+        return m >= monthStart && m <= monthEnd;
+    });
 
     // Monthly Sales
     const monthlyCanvas = document.getElementById('monthly-sales-chart');
     if (monthlyCanvas) {
         safeDestroyChart('monthlySales');
         const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const labels = monthlyMetrics.map(d => {
+        const labels = filteredMonthly.map(d => {
             const dt = new Date(d.month);
             return monthNames[dt.getMonth()] + ' ' + dt.getFullYear();
         });
-        const data = monthlyMetrics.map(d => d.no_of_sales);
+        const data = filteredMonthly.map(d => d.no_of_sales);
         
         chartInstances['monthlySales'] = new Chart(monthlyCanvas, {
             type: 'bar',
@@ -222,7 +323,18 @@ const renderCharts = (dailyMetrics, monthlyMetrics) => {
                     borderRadius: 4
                 }]
             },
-            options: commonOptions
+            options: {
+                ...commonOptions,
+                plugins: {
+                    ...commonOptions.plugins,
+                    tooltip: {
+                        ...tooltipStyle,
+                        callbacks: {
+                            label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
+                        }
+                    }
+                }
+            }
         });
     }
 };
@@ -250,6 +362,7 @@ const renderLeaderboard = (leaderboardMetrics) => {
     tbody.innerHTML = '';
     sortedData.forEach((row, index) => {
         const tr = document.createElement('tr');
+        tr.dataset.repName = row.sales_representative || 'Unknown';
         tr.innerHTML = `
             <td><span class="rank-badge rank-${index + 1}">${index + 1}</span></td>
             <td>${row.sales_representative || 'Unknown'}</td>
@@ -258,6 +371,7 @@ const renderLeaderboard = (leaderboardMetrics) => {
             <td>${formatNumber(row.today_sales)}</td>
             <td>${formatCurrency(row.today_revenue)}</td>
         `;
+        tr.addEventListener('click', () => openRepModal(row.sales_representative, index + 1));
         tbody.appendChild(tr);
     });
 
@@ -357,7 +471,22 @@ const renderProducts = (products) => {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: { position: 'right', labels: { color: '#e5e7eb' } }
+                    legend: { position: 'right', labels: { color: '#e5e7eb' } },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 29, 39, 0.95)',
+                        titleColor: '#e8eaed',
+                        bodyColor: '#9aa0a6',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 10,
+                        titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+                        bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+                        displayColors: true,
+                        callbacks: {
+                            label: (ctx) => ` ${ctx.label}: ${formatNumber(ctx.raw)} sales`
+                        }
+                    }
                 }
             }
         });
@@ -384,7 +513,24 @@ const renderProducts = (products) => {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 29, 39, 0.95)',
+                        titleColor: '#e8eaed',
+                        bodyColor: '#9aa0a6',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 10,
+                        titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+                        bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+                        displayColors: false,
+                        callbacks: {
+                            label: (ctx) => `Sales: ${formatNumber(ctx.raw)}`
+                        }
+                    }
+                },
                 scales: {
                     x: { ticks: { color: '#9aa0a6' }, grid: { display: false } },
                     y: { ticks: { color: '#9aa0a6' }, grid: { color: 'rgba(255,255,255,0.05)' } }
@@ -417,7 +563,24 @@ const renderDestinations = (destinations) => {
                 indexAxis: 'y',
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(26, 29, 39, 0.95)',
+                        titleColor: '#e8eaed',
+                        bodyColor: '#9aa0a6',
+                        borderColor: 'rgba(255, 255, 255, 0.1)',
+                        borderWidth: 1,
+                        cornerRadius: 8,
+                        padding: 10,
+                        titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+                        bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+                        displayColors: false,
+                        callbacks: {
+                            label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
+                        }
+                    }
+                },
                 scales: {
                     x: { ticks: { color: '#9aa0a6' }, grid: { color: 'rgba(255,255,255,0.05)' } },
                     y: { ticks: { color: '#9aa0a6' }, grid: { display: false } }
@@ -485,12 +648,146 @@ const renderComparison = (performance) => {
 };
 
 
+// -- SALESMAN DRILL-DOWN MODAL --
+
+const openRepModal = (repName, rank) => {
+    if (!currentData || !currentData.sales || !currentData.sales.leaderboard_metrics) return;
+    const leaderboard = currentData.sales.leaderboard_metrics;
+    const rep = leaderboard.find(r => r.sales_representative === repName);
+    if (!rep) return;
+
+    // Compute team totals for contribution %
+    const teamMtdSales = leaderboard.reduce((s, r) => s + (r.mtd_sales || 0), 0);
+    const teamMtdRevenue = leaderboard.reduce((s, r) => s + (r.mtd_revenue || 0), 0);
+    const teamTodaySales = leaderboard.reduce((s, r) => s + (r.today_sales || 0), 0);
+    const teamTodayRevenue = leaderboard.reduce((s, r) => s + (r.today_revenue || 0), 0);
+
+    const pct = (part, total) => total > 0 ? ((part / total) * 100).toFixed(1) : '0.0';
+
+    // AOV calculation
+    const todayAOV = rep.today_sales > 0 ? rep.today_revenue / rep.today_sales : 0;
+    const mtdAOV = rep.mtd_sales > 0 ? rep.mtd_revenue / rep.mtd_sales : 0;
+
+    // Populate header
+    document.querySelector('.rep-modal-name').textContent = repName;
+    document.querySelector('.rep-modal-rank').textContent = `Rank #${rank} of ${leaderboard.length} representatives`;
+
+    // Populate stat cards
+    document.getElementById('rep-modal-stats').innerHTML = `
+        <div class="rep-stat-card">
+            <div class="rep-stat-label">MTD Sales</div>
+            <div class="rep-stat-value">${formatNumber(rep.mtd_sales)}</div>
+        </div>
+        <div class="rep-stat-card">
+            <div class="rep-stat-label">MTD Revenue</div>
+            <div class="rep-stat-value">${formatCurrency(rep.mtd_revenue)}</div>
+        </div>
+        <div class="rep-stat-card">
+            <div class="rep-stat-label">Today Sales</div>
+            <div class="rep-stat-value">${formatNumber(rep.today_sales)}</div>
+        </div>
+        <div class="rep-stat-card">
+            <div class="rep-stat-label">Today Revenue</div>
+            <div class="rep-stat-value">${formatCurrency(rep.today_revenue)}</div>
+        </div>
+    `;
+
+    // Contribution bars
+    const mtdSalesPct = pct(rep.mtd_sales, teamMtdSales);
+    const mtdRevPct = pct(rep.mtd_revenue, teamMtdRevenue);
+    const todaySalesPct = pct(rep.today_sales, teamTodaySales);
+    const todayRevPct = pct(rep.today_revenue, teamTodayRevenue);
+
+    document.getElementById('rep-modal-contrib-bars').innerHTML = `
+        <div class="rep-contrib-row">
+            <span class="rep-contrib-label">MTD Sales</span>
+            <div class="rep-contrib-bar-bg"><div class="rep-contrib-bar-fill sales-fill" style="width: ${mtdSalesPct}%"></div></div>
+            <span class="rep-contrib-pct">${mtdSalesPct}%</span>
+        </div>
+        <div class="rep-contrib-row">
+            <span class="rep-contrib-label">MTD Revenue</span>
+            <div class="rep-contrib-bar-bg"><div class="rep-contrib-bar-fill revenue-fill" style="width: ${mtdRevPct}%"></div></div>
+            <span class="rep-contrib-pct">${mtdRevPct}%</span>
+        </div>
+        <div class="rep-contrib-row">
+            <span class="rep-contrib-label">Today Sales</span>
+            <div class="rep-contrib-bar-bg"><div class="rep-contrib-bar-fill sales-fill" style="width: ${todaySalesPct}%"></div></div>
+            <span class="rep-contrib-pct">${todaySalesPct}%</span>
+        </div>
+        <div class="rep-contrib-row">
+            <span class="rep-contrib-label">Today Revenue</span>
+            <div class="rep-contrib-bar-bg"><div class="rep-contrib-bar-fill revenue-fill" style="width: ${todayRevPct}%"></div></div>
+            <span class="rep-contrib-pct">${todayRevPct}%</span>
+        </div>
+    `;
+
+    // Performance snapshot
+    document.getElementById('rep-modal-snapshot').innerHTML = `
+        <div class="rep-snapshot-grid">
+            <div class="rep-snapshot-card">
+                <div class="rep-snapshot-label">Today AOV</div>
+                <div class="rep-snapshot-value">${formatCurrency(todayAOV)}</div>
+                <div class="rep-snapshot-sub">${formatNumber(rep.today_sales)} orders</div>
+            </div>
+            <div class="rep-snapshot-card">
+                <div class="rep-snapshot-label">MTD AOV</div>
+                <div class="rep-snapshot-value">${formatCurrency(mtdAOV)}</div>
+                <div class="rep-snapshot-sub">${formatNumber(rep.mtd_sales)} orders</div>
+            </div>
+            <div class="rep-snapshot-card">
+                <div class="rep-snapshot-label">Sales Share</div>
+                <div class="rep-snapshot-value">${mtdSalesPct}%</div>
+                <div class="rep-snapshot-sub">of team total (${formatNumber(teamMtdSales)})</div>
+            </div>
+            <div class="rep-snapshot-card">
+                <div class="rep-snapshot-label">Revenue Share</div>
+                <div class="rep-snapshot-value">${mtdRevPct}%</div>
+                <div class="rep-snapshot-sub">of team total (${formatCurrency(teamMtdRevenue)})</div>
+            </div>
+        </div>
+    `;
+
+    // Show modal
+    const overlay = document.getElementById('rep-modal');
+    overlay.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+};
+
+const closeRepModal = () => {
+    const overlay = document.getElementById('rep-modal');
+    overlay.style.display = 'none';
+    document.body.style.overflow = '';
+};
+
 // -- DATA FETCHING & INITIALIZATION --
 
 const fetchDashboard = async (date) => {
     if (!window.__DASHBOARD_CONFIG__ || !window.__DASHBOARD_CONFIG__.SUPABASE_URL || !window.__DASHBOARD_CONFIG__.SUPABASE_KEY) {
         showError('Missing configuration. Please ensure config.js is properly loaded with SUPABASE_URL and SUPABASE_KEY.');
         return;
+    }
+
+    // Enforce data boundary clamping
+    const clampedDate = clampDate(date);
+    const dateInput = document.getElementById('report-date');
+    if (dateInput && dateInput.value !== clampedDate) {
+        dateInput.value = clampedDate;
+    }
+
+    // Sync default daily chart range to the selected month & report date
+    const dParts = clampedDate.split('-');
+    if (dParts.length === 3) {
+        const monthStart = `${dParts[0]}-${dParts[1]}-01`;
+        const clampedMonthStart = clampDate(monthStart);
+
+        const updatePickerVal = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+        };
+        updatePickerVal('daily-sales-start', clampedMonthStart);
+        updatePickerVal('daily-sales-end', clampedDate);
+        updatePickerVal('daily-revenue-start', clampedMonthStart);
+        updatePickerVal('daily-revenue-end', clampedDate);
     }
 
     showLoading();
@@ -506,7 +803,7 @@ const fetchDashboard = async (date) => {
                 'Authorization': `Bearer ${SUPABASE_KEY}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ report_date: date })
+            body: JSON.stringify({ report_date: clampedDate })
         });
 
         if (!response.ok) {
@@ -533,8 +830,7 @@ const fetchDashboard = async (date) => {
 
         // Empty state check
         if (data.sales.kpi_cards.today_sales === 0 && (!data.sales.daily_metrics || data.sales.daily_metrics.length === 0)) {
-            // Optional: Show subtle empty state indicator within dashboard
-            console.warn('No recent data found for this date.');
+            console.warn('No sales data found for this date.');
         }
 
     } catch (error) {
@@ -547,22 +843,87 @@ document.addEventListener('DOMContentLoaded', () => {
     const dateInput = document.getElementById('report-date');
     const retryBtn = document.getElementById('retry-btn');
     
-    // Default to yesterday
-    const yesterday = new Date(Date.now() - 86400000);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-    
+    // Initialize Main Report Date Picker
     if (dateInput) {
-        dateInput.value = yesterdayStr;
-        dateInput.addEventListener('change', (e) => {
-            if (e.target.value) {
-                fetchDashboard(e.target.value);
+        dateInput.min = DATA_BOUNDS.MIN_DATE;
+        dateInput.max = DATA_BOUNDS.MAX_DATE;
+        dateInput.value = DATA_BOUNDS.DEFAULT_DATE;
+
+        const onDateChange = (e) => {
+            const rawVal = e.target.value;
+            const clamped = clampDate(rawVal);
+            if (e.target.value !== clamped) {
+                e.target.value = clamped;
+            }
+            fetchDashboard(clamped);
+        };
+
+        dateInput.addEventListener('change', onDateChange);
+        dateInput.addEventListener('blur', (e) => {
+            if (!e.target.value || e.target.value < DATA_BOUNDS.MIN_DATE || e.target.value > DATA_BOUNDS.MAX_DATE) {
+                onDateChange(e);
             }
         });
     }
+
+    // Chart Range Selector Bindings
+    const setupDailyRange = (startId, endId) => {
+        const startEl = document.getElementById(startId);
+        const endEl = document.getElementById(endId);
+        if (!startEl || !endEl) return;
+
+        startEl.min = DATA_BOUNDS.MIN_DATE;
+        startEl.max = DATA_BOUNDS.MAX_DATE;
+        endEl.min = DATA_BOUNDS.MIN_DATE;
+        endEl.max = DATA_BOUNDS.MAX_DATE;
+
+        const onRangeChange = () => {
+            let sVal = clampDate(startEl.value);
+            let eVal = clampDate(endEl.value);
+            if (sVal > eVal) sVal = eVal;
+            startEl.value = sVal;
+            endEl.value = eVal;
+            if (currentData && currentData.sales) {
+                renderCharts(currentData.sales.daily_metrics || [], currentData.sales.monthly_metrics || []);
+            }
+        };
+
+        startEl.addEventListener('change', onRangeChange);
+        endEl.addEventListener('change', onRangeChange);
+    };
+
+    const setupMonthlyRange = (startId, endId) => {
+        const startEl = document.getElementById(startId);
+        const endEl = document.getElementById(endId);
+        if (!startEl || !endEl) return;
+
+        startEl.min = DATA_BOUNDS.MIN_MONTH;
+        startEl.max = DATA_BOUNDS.MAX_MONTH;
+        endEl.min = DATA_BOUNDS.MIN_MONTH;
+        endEl.max = DATA_BOUNDS.MAX_MONTH;
+
+        const onRangeChange = () => {
+            let sVal = clampMonth(startEl.value);
+            let eVal = clampMonth(endEl.value);
+            if (sVal > eVal) sVal = eVal;
+            startEl.value = sVal;
+            endEl.value = eVal;
+            if (currentData && currentData.sales) {
+                renderCharts(currentData.sales.daily_metrics || [], currentData.sales.monthly_metrics || []);
+            }
+        };
+
+        startEl.addEventListener('change', onRangeChange);
+        endEl.addEventListener('change', onRangeChange);
+    };
+
+    setupDailyRange('daily-sales-start', 'daily-sales-end');
+    setupDailyRange('daily-revenue-start', 'daily-revenue-end');
+    setupMonthlyRange('monthly-sales-start', 'monthly-sales-end');
     
     if (retryBtn) {
         retryBtn.addEventListener('click', () => {
-            const dateVal = dateInput ? dateInput.value : yesterdayStr;
+            const dateVal = dateInput ? dateInput.value : DATA_BOUNDS.DEFAULT_DATE;
             fetchDashboard(dateVal);
         });
     }
@@ -575,6 +936,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Initial fetch
-    fetchDashboard(yesterdayStr);
+    // Rep modal close handlers
+    document.getElementById('rep-modal-close').addEventListener('click', closeRepModal);
+    document.getElementById('rep-modal').addEventListener('click', (e) => {
+        if (e.target === e.currentTarget) closeRepModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeRepModal();
+    });
+
+    // Initial fetch with default date (May 25, 2026)
+    fetchDashboard(DATA_BOUNDS.DEFAULT_DATE);
 });

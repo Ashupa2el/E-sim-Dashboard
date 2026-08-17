@@ -36,7 +36,7 @@
         </div>
         <div class="header-right">
           <label for="report-date" class="date-label">Report Date</label>
-          <input type="date" id="report-date" class="date-input">
+          <input type="date" id="report-date" class="date-input" min="2026-01-01" max="2026-05-31" value="2026-05-31">
         </div>
       </header>
 
@@ -60,23 +60,44 @@
         <div class="charts-grid">
           <div class="chart-card">
             <div class="chart-header">
-              <h3 class="chart-title">Daily Sales</h3>
-              <p class="chart-subtitle">Orders per day this month</p>
+              <div class="chart-header-text">
+                <h3 class="chart-title">Daily Sales</h3>
+                <p class="chart-subtitle">Orders per day this month</p>
+              </div>
+              <div class="chart-controls">
+                <input type="date" id="daily-sales-start" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-01" aria-label="Daily Sales Start Date">
+                <span class="range-sep">to</span>
+                <input type="date" id="daily-sales-end" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-25" aria-label="Daily Sales End Date">
+              </div>
             </div>
             <div class="chart-container"><canvas id="daily-sales-chart"></canvas></div>
           </div>
           <div class="chart-card">
             <div class="chart-header">
-              <h3 class="chart-title">Daily Revenue</h3>
-              <p class="chart-subtitle">Revenue per day this month</p>
+              <div class="chart-header-text">
+                <h3 class="chart-title">Daily Revenue</h3>
+                <p class="chart-subtitle">Revenue per day this month</p>
+              </div>
+              <div class="chart-controls">
+                <input type="date" id="daily-revenue-start" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-01" aria-label="Daily Revenue Start Date">
+                <span class="range-sep">to</span>
+                <input type="date" id="daily-revenue-end" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-25" aria-label="Daily Revenue End Date">
+              </div>
             </div>
             <div class="chart-container"><canvas id="daily-revenue-chart"></canvas></div>
           </div>
         </div>
         <div class="chart-card chart-card--wide">
           <div class="chart-header">
-            <h3 class="chart-title">Monthly Sales</h3>
-            <p class="chart-subtitle">Total orders by month</p>
+            <div class="chart-header-text">
+              <h3 class="chart-title">Monthly Sales</h3>
+              <p class="chart-subtitle">Total orders by month</p>
+            </div>
+            <div class="chart-controls">
+              <input type="month" id="monthly-sales-start" class="chart-date-input" min="2026-01" max="2026-05" value="2026-01" aria-label="Monthly Sales Start Month">
+              <span class="range-sep">to</span>
+              <input type="month" id="monthly-sales-end" class="chart-date-input" min="2026-01" max="2026-05" value="2026-05" aria-label="Monthly Sales End Month">
+            </div>
           </div>
           <div class="chart-container chart-container--wide"><canvas id="monthly-sales-chart"></canvas></div>
         </div>
@@ -153,6 +174,31 @@
       </div>
 
     </div>
+
+    <!-- Salesman Drill-down Modal -->
+    <div id="rep-modal" class="rep-modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="rep-modal-title">
+      <div class="rep-modal">
+        <div class="rep-modal-header">
+          <div>
+            <h2 id="rep-modal-title" class="rep-modal-name"></h2>
+            <p class="rep-modal-rank"></p>
+          </div>
+          <button id="rep-modal-close" class="rep-modal-close" aria-label="Close modal">&times;</button>
+        </div>
+        <div class="rep-modal-body">
+          <div class="rep-modal-stats" id="rep-modal-stats"></div>
+          <div class="rep-modal-contrib">
+            <h3 class="rep-modal-section-title">Contribution to Team</h3>
+            <div id="rep-modal-contrib-bars"></div>
+          </div>
+          <div class="rep-modal-daily">
+            <h3 class="rep-modal-section-title">Performance Snapshot</h3>
+            <div id="rep-modal-snapshot"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
