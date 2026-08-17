@@ -492,12 +492,13 @@ const renderProducts = (products) => {
         });
     }
 
-    // Validity Chart
+    // Validity Chart (sorted ascending by duration)
     const validityCanvas = document.getElementById('validity-chart');
     if (validityCanvas && products.validity_summary) {
         safeDestroyChart('validity');
-        const labels = products.validity_summary.map(s => s.validity ? s.validity + ' Days' : 'Unknown');
-        const data = products.validity_summary.map(s => s.sales);
+        const sortedValidity = [...products.validity_summary].sort((a, b) => (a.validity || 0) - (b.validity || 0));
+        const labels = sortedValidity.map(s => s.validity ? s.validity + ' Days' : 'Unknown');
+        const data = sortedValidity.map(s => s.sales);
         
         chartInstances['validity'] = new Chart(validityCanvas, {
             type: 'bar',
@@ -759,6 +760,60 @@ const closeRepModal = () => {
     document.body.style.overflow = '';
 };
 
+// -- CSV EXPORT --
+
+const exportLeaderboardCSV = () => {
+    if (!currentData || !currentData.sales || !currentData.sales.leaderboard_metrics) return;
+
+    const leaderboard = currentData.sales.leaderboard_metrics;
+
+    // Use the same sort as the visible table
+    const sorted = [...leaderboard].sort((a, b) => {
+        let valA = a[leaderboardSort.column];
+        let valB = b[leaderboardSort.column];
+        if (valA === null) valA = 0;
+        if (valB === null) valB = 0;
+        if (typeof valA === 'string' && typeof valB === 'string') {
+            return leaderboardSort.direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return leaderboardSort.direction === 'asc' ? (valA - valB) : (valB - valA);
+    });
+
+    // CSV-safe field: wrap in quotes if it contains a comma, quote, or newline
+    const csvField = (val) => {
+        const str = String(val == null ? '' : val);
+        if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+            return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+    };
+
+    const header = ['Rank', 'Representative', 'MTD Sales', 'MTD Revenue', 'Today Sales', 'Today Revenue'];
+    const rows = sorted.map((row, i) => [
+        i + 1,
+        csvField(row.sales_representative || 'Unknown'),
+        row.mtd_sales || 0,
+        row.mtd_revenue || 0,
+        row.today_sales || 0,
+        row.today_revenue || 0
+    ].join(','));
+
+    const csv = header.join(',') + '\n' + rows.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+
+    const dateInput = document.getElementById('report-date');
+    const dateStr = dateInput ? dateInput.value : 'unknown';
+    const filename = `sales-leaderboard-${dateStr}.csv`;
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(a.href);
+};
+
 // -- DATA FETCHING & INITIALIZATION --
 
 const fetchDashboard = async (date) => {
@@ -944,6 +999,12 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') closeRepModal();
     });
+
+    // CSV export button
+    const exportBtn = document.getElementById('export-csv-btn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportLeaderboardCSV);
+    }
 
     // Initial fetch with default date (May 25, 2026)
     fetchDashboard(DATA_BOUNDS.DEFAULT_DATE);

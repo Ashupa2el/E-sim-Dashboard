@@ -109,6 +109,28 @@ body {
   outline: none;
   border-color: var(--accent-color);
 }
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent-color);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+.export-btn:hover {
+  background: var(--accent-hover);
+}
+.export-btn:active {
+  transform: scale(0.97);
+}
 
 /* ═══ SECTION TITLES ═══ */
 .section { margin-bottom: 32px; }
