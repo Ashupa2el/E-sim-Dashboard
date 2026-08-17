@@ -828,10 +828,101 @@ body {
   margin-top: 4px;
 }
 
+/* ═══ SALES HISTORY IN MODAL ═══ */
+.rep-modal-history {
+  margin-top: 24px;
+}
+.rep-history-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rep-history-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.rep-history-header .rep-modal-section-title {
+  margin-bottom: 0;
+}
+.rep-history-range {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-tertiary);
+  background: var(--surface-elevated);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  white-space: nowrap;
+}
+.rep-history-toggles {
+  display: inline-flex;
+  background: var(--surface-elevated);
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  gap: 2px;
+}
+.rep-toggle-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+  line-height: 1.4;
+}
+.rep-toggle-btn:hover {
+  color: var(--text-primary);
+}
+.rep-toggle-btn.active {
+  background: var(--accent-color);
+  color: #ffffff;
+  font-weight: 600;
+}
+.rep-history-chart-container {
+  position: relative;
+  height: 180px;
+  width: 100%;
+  background: var(--surface-elevated);
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+}
+.rep-history-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(26, 29, 39, 0.9);
+  backdrop-filter: blur(2px);
+  border-radius: 10px;
+  z-index: 5;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.spinner--small {
+  width: 22px;
+  height: 22px;
+  border-width: 2px;
+}
+
 /* Modal responsive */
 @media (max-width: 480px) {
   .rep-modal {
     max-width: 100%;
+    max-height: 90vh;
     border-radius: 12px;
   }
   .rep-modal-stats {
@@ -839,5 +930,8 @@ body {
   }
   .rep-snapshot-grid {
     grid-template-columns: 1fr;
+  }
+  .rep-history-chart-container {
+    height: 160px;
   }
 }

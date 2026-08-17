@@ -3,8 +3,8 @@
 // -- DATA BOUNDARIES & CONSTANTS --
 const DATA_BOUNDS = {
     MIN_DATE: '2026-01-01',
-    MAX_DATE: '2026-05-31',
-    DEFAULT_DATE: '2026-05-31',
+    MAX_DATE: '2026-05-25',
+    DEFAULT_DATE: '2026-05-25',
     MIN_MONTH: '2026-01',
     MAX_MONTH: '2026-05'
 };
@@ -30,9 +30,25 @@ const clampMonth = (monthStr, minStr = DATA_BOUNDS.MIN_MONTH, maxStr = DATA_BOUN
 // -- STATE MANAGEMENT --
 let currentData = null;
 let chartInstances = {};
+window.chartInstances = chartInstances;
 let leaderboardSort = { column: 'mtd_sales', direction: 'desc' };
+const allDailyMetricsCache = {};
 
 // -- UTILITY FUNCTIONS --
+const generateDateRange = (startDateStr, endDateStr) => {
+    const dates = [];
+    const curr = new Date(startDateStr + 'T00:00:00');
+    const end = new Date(endDateStr + 'T00:00:00');
+    while (curr <= end) {
+        const y = curr.getFullYear();
+        const m = String(curr.getMonth() + 1).padStart(2, '0');
+        const d = String(curr.getDate()).padStart(2, '0');
+        dates.push(`${y}-${m}-${d}`);
+        curr.setDate(curr.getDate() + 1);
+    }
+    return dates;
+};
+
 const formatCurrency = (value) => {
     if (value === null || value === undefined) return '—';
     return new Intl.NumberFormat('en-IN', {
@@ -161,137 +177,280 @@ const renderKPIs = (kpiCards, performance) => {
     }
 };
 
-const renderCharts = (dailyMetrics = [], monthlyMetrics = []) => {
-    // Shared tooltip styling
-    const tooltipStyle = {
-        enabled: true,
-        backgroundColor: 'rgba(26, 29, 39, 0.95)',
-        titleColor: '#e8eaed',
-        bodyColor: '#9aa0a6',
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        borderWidth: 1,
-        cornerRadius: 8,
-        padding: 10,
-        titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
-        bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
-        displayColors: false,
-        caretSize: 6
+const tooltipStyle = {
+    enabled: true,
+    backgroundColor: 'rgba(26, 29, 39, 0.95)',
+    titleColor: '#e8eaed',
+    bodyColor: '#9aa0a6',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderWidth: 1,
+    cornerRadius: 8,
+    padding: 10,
+    titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+    bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+    displayColors: false,
+    caretSize: 6
+};
+
+const populateDailyMetrics = (metricsArray) => {
+    if (!Array.isArray(metricsArray)) return;
+    metricsArray.forEach(m => {
+        if (m && m.order_date) {
+            allDailyMetricsCache[m.order_date] = m;
+        }
+    });
+};
+
+const ensureDailyMetricsForRange = async (startDateStr, endDateStr) => {
+    if (!window.__DASHBOARD_CONFIG__ || !window.__DASHBOARD_CONFIG__.SUPABASE_URL || !window.__DASHBOARD_CONFIG__.SUPABASE_KEY) return;
+    const { SUPABASE_URL, SUPABASE_KEY } = window.__DASHBOARD_CONFIG__;
+    const apiUrl = `${SUPABASE_URL}/rest/v1/rpc/get_full_sales_dashboard`;
+
+    const startYear = parseInt(startDateStr.substring(0, 4), 10);
+    const startMonth = parseInt(startDateStr.substring(5, 7), 10);
+    const endYear = parseInt(endDateStr.substring(0, 4), 10);
+    const endMonth = parseInt(endDateStr.substring(5, 7), 10);
+
+    const monthEndMap = {
+        '2026-01': '2026-01-31',
+        '2026-02': '2026-02-28',
+        '2026-03': '2026-03-31',
+        '2026-04': '2026-04-30',
+        '2026-05': '2026-05-25'
     };
 
-    // Shared chart options
-    const commonOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { display: false },
-            tooltip: tooltipStyle
-        },
-        scales: {
-            x: {
-                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                ticks: { color: '#9aa0a6' }
-            },
-            y: {
-                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                ticks: { color: '#9aa0a6' }
+    const neededMonths = [];
+    let curY = startYear;
+    let curM = startMonth;
+    while (curY < endYear || (curY === endYear && curM <= endMonth)) {
+        const mKey = `${curY}-${String(curM).padStart(2, '0')}`;
+        if (monthEndMap[mKey]) {
+            const hasData = Object.keys(allDailyMetricsCache).some(k => k.startsWith(mKey));
+            if (!hasData) {
+                neededMonths.push(monthEndMap[mKey]);
             }
         }
-    };
+        curM++;
+        if (curM > 12) { curM = 1; curY++; }
+    }
 
-    // Filter Daily Sales by bounded range selector
+    if (neededMonths.length === 0) return;
+
+    await Promise.all(neededMonths.map(async (monthEnd) => {
+        try {
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'apikey': SUPABASE_KEY,
+                    'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ report_date: monthEnd })
+            });
+            if (!res.ok) return;
+            const d = await res.json();
+            if (d && d.sales && d.sales.daily_metrics) {
+                populateDailyMetrics(d.sales.daily_metrics);
+            }
+        } catch (e) {
+            console.warn('Failed to load metrics for', monthEnd, e);
+        }
+    }));
+};
+
+const preloadAllMonthsDailyMetrics = async () => {
+    const monthEndDates = ['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30', '2026-05-25'];
+    if (!window.__DASHBOARD_CONFIG__ || !window.__DASHBOARD_CONFIG__.SUPABASE_URL || !window.__DASHBOARD_CONFIG__.SUPABASE_KEY) return;
+    const { SUPABASE_URL, SUPABASE_KEY } = window.__DASHBOARD_CONFIG__;
+    const apiUrl = `${SUPABASE_URL}/rest/v1/rpc/get_full_sales_dashboard`;
+
+    const fetches = monthEndDates.map(async (dStr) => {
+        const prefix = dStr.substring(0, 7);
+        const alreadyCached = Object.keys(allDailyMetricsCache).some(k => k.startsWith(prefix));
+        if (alreadyCached) return;
+
+        try {
+            const res = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'apikey': SUPABASE_KEY,
+                    'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ report_date: dStr })
+            });
+            if (!res.ok) return;
+            const d = await res.json();
+            if (d && d.sales && d.sales.daily_metrics) {
+                populateDailyMetrics(d.sales.daily_metrics);
+            }
+        } catch (e) {
+            // Background prefetch silent fallback
+        }
+    });
+    await Promise.all(fetches);
+};
+
+const renderDailySalesChart = async () => {
     const salesStartEl = document.getElementById('daily-sales-start');
     const salesEndEl = document.getElementById('daily-sales-end');
     const salesStart = salesStartEl ? clampDate(salesStartEl.value) : DATA_BOUNDS.MIN_DATE;
     const salesEnd = salesEndEl ? clampDate(salesEndEl.value) : DATA_BOUNDS.MAX_DATE;
-    const filteredDailySales = dailyMetrics.filter(d => d.order_date >= salesStart && d.order_date <= salesEnd);
+    
+    const canvas = document.getElementById('daily-sales-chart');
+    if (!canvas) return;
 
-    // Daily Sales
-    const dailySalesCanvas = document.getElementById('daily-sales-chart');
-    if (dailySalesCanvas) {
-        safeDestroyChart('dailySales');
-        const labels = filteredDailySales.map(d => {
-            const dt = new Date(d.order_date);
-            return `${dt.getDate()} ${['Jan','Feb','Mar','Apr','May'][dt.getMonth()] || ''}`;
-        });
-        const data = filteredDailySales.map(d => d.no_of_sales);
-        
-        chartInstances['dailySales'] = new Chart(dailySalesCanvas, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Sales',
-                    data: data,
-                    backgroundColor: '#3b82f6',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                ...commonOptions,
-                plugins: {
-                    ...commonOptions.plugins,
-                    tooltip: {
-                        ...tooltipStyle,
-                        callbacks: {
-                            label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
-                        }
+    await ensureDailyMetricsForRange(salesStart, salesEnd);
+
+    safeDestroyChart('dailySales');
+
+    const dateRange = generateDateRange(salesStart, salesEnd);
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    const labels = dateRange.map(dStr => {
+        const dt = new Date(dStr + 'T00:00:00');
+        return `${dt.getDate()} ${monthNames[dt.getMonth()] || ''}`;
+    });
+
+    const data = dateRange.map(dStr => {
+        const item = allDailyMetricsCache[dStr];
+        return item ? (item.no_of_sales || 0) : 0;
+    });
+
+    chartInstances['dailySales'] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Sales',
+                data: data,
+                backgroundColor: '#3b82f6',
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    ...tooltipStyle,
+                    callbacks: {
+                        title: (items) => {
+                            if (!items || !items.length) return '';
+                            const idx = items[0].dataIndex;
+                            const dStr = dateRange[idx];
+                            if (!dStr) return items[0].label;
+                            const dt = new Date(dStr + 'T00:00:00');
+                            return `${dt.getDate()} ${monthNames[dt.getMonth()]} ${dt.getFullYear()}`;
+                        },
+                        label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
                     }
                 }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#9aa0a6', maxTicksLimit: 12, autoSkip: true }
+                },
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: 5,
+                    ticks: {
+                        precision: 0,
+                        color: '#9aa0a6'
+                    },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                }
             }
-        });
-    }
+        }
+    });
+};
 
-    // Filter Daily Revenue by bounded range selector
+const renderDailyRevenueChart = async () => {
     const revStartEl = document.getElementById('daily-revenue-start');
     const revEndEl = document.getElementById('daily-revenue-end');
     const revStart = revStartEl ? clampDate(revStartEl.value) : DATA_BOUNDS.MIN_DATE;
     const revEnd = revEndEl ? clampDate(revEndEl.value) : DATA_BOUNDS.MAX_DATE;
-    const filteredDailyRevenue = dailyMetrics.filter(d => d.order_date >= revStart && d.order_date <= revEnd);
 
-    // Daily Revenue
-    const dailyRevCanvas = document.getElementById('daily-revenue-chart');
-    if (dailyRevCanvas) {
-        safeDestroyChart('dailyRevenue');
-        const labels = filteredDailyRevenue.map(d => {
-            const dt = new Date(d.order_date);
-            return `${dt.getDate()} ${['Jan','Feb','Mar','Apr','May'][dt.getMonth()] || ''}`;
-        });
-        const data = filteredDailyRevenue.map(d => d.total_revenue);
-        
-        chartInstances['dailyRevenue'] = new Chart(dailyRevCanvas, {
-            type: 'line',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Revenue',
-                    data: data,
-                    borderColor: '#3b82f6',
-                    backgroundColor: 'rgba(59, 130, 246, 0.2)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 2,
-                    pointHoverRadius: 6,
-                    pointHoverBackgroundColor: '#3b82f6',
-                    pointHoverBorderColor: '#fff',
-                    pointHoverBorderWidth: 2
-                }]
-            },
-            options: {
-                ...commonOptions,
-                plugins: {
-                    ...commonOptions.plugins,
-                    tooltip: {
-                        ...tooltipStyle,
-                        callbacks: {
-                            label: (ctx) => `Revenue: ${formatCurrency(ctx.raw)}`
-                        }
+    const canvas = document.getElementById('daily-revenue-chart');
+    if (!canvas) return;
+
+    await ensureDailyMetricsForRange(revStart, revEnd);
+
+    safeDestroyChart('dailyRevenue');
+
+    const dateRange = generateDateRange(revStart, revEnd);
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    const labels = dateRange.map(dStr => {
+        const dt = new Date(dStr + 'T00:00:00');
+        return `${dt.getDate()} ${monthNames[dt.getMonth()] || ''}`;
+    });
+
+    const data = dateRange.map(dStr => {
+        const item = allDailyMetricsCache[dStr];
+        return item ? (item.total_revenue || 0) : 0;
+    });
+
+    chartInstances['dailyRevenue'] = new Chart(canvas, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Revenue',
+                data: data,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: dateRange.length > 50 ? 0 : 2,
+                pointHoverRadius: 6,
+                pointHoverBackgroundColor: '#3b82f6',
+                pointHoverBorderColor: '#fff',
+                pointHoverBorderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    ...tooltipStyle,
+                    callbacks: {
+                        title: (items) => {
+                            if (!items || !items.length) return '';
+                            const idx = items[0].dataIndex;
+                            const dStr = dateRange[idx];
+                            if (!dStr) return items[0].label;
+                            const dt = new Date(dStr + 'T00:00:00');
+                            return `${dt.getDate()} ${monthNames[dt.getMonth()]} ${dt.getFullYear()}`;
+                        },
+                        label: (ctx) => `Revenue: ${formatCurrency(ctx.raw)}`
                     }
                 }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#9aa0a6', maxTicksLimit: 12, autoSkip: true }
+                },
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: 1000,
+                    ticks: {
+                        color: '#9aa0a6',
+                        callback: (v) => formatCurrency(v)
+                    },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                }
             }
-        });
-    }
+        }
+    });
+};
 
-    // Filter Monthly Sales by bounded range selector
+const renderMonthlySalesChart = (monthlyMetrics = []) => {
     const monthStartEl = document.getElementById('monthly-sales-start');
     const monthEndEl = document.getElementById('monthly-sales-end');
     const monthStart = monthStartEl ? clampMonth(monthStartEl.value) : DATA_BOUNDS.MIN_MONTH;
@@ -301,42 +460,61 @@ const renderCharts = (dailyMetrics = [], monthlyMetrics = []) => {
         return m >= monthStart && m <= monthEnd;
     });
 
-    // Monthly Sales
     const monthlyCanvas = document.getElementById('monthly-sales-chart');
-    if (monthlyCanvas) {
-        safeDestroyChart('monthlySales');
-        const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-        const labels = filteredMonthly.map(d => {
-            const dt = new Date(d.month);
-            return monthNames[dt.getMonth()] + ' ' + dt.getFullYear();
-        });
-        const data = filteredMonthly.map(d => d.no_of_sales);
-        
-        chartInstances['monthlySales'] = new Chart(monthlyCanvas, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Sales',
-                    data: data,
-                    backgroundColor: '#8b5cf6',
-                    borderRadius: 4
-                }]
-            },
-            options: {
-                ...commonOptions,
-                plugins: {
-                    ...commonOptions.plugins,
-                    tooltip: {
-                        ...tooltipStyle,
-                        callbacks: {
-                            label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
-                        }
+    if (!monthlyCanvas) return;
+
+    safeDestroyChart('monthlySales');
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const labels = filteredMonthly.map(d => {
+        const dt = new Date(d.month);
+        return monthNames[dt.getMonth()] + ' ' + dt.getFullYear();
+    });
+    const data = filteredMonthly.map(d => d.no_of_sales);
+    
+    chartInstances['monthlySales'] = new Chart(monthlyCanvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Sales',
+                data: data,
+                backgroundColor: '#8b5cf6',
+                borderRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    ...tooltipStyle,
+                    callbacks: {
+                        label: (ctx) => `Orders: ${formatNumber(ctx.raw)}`
                     }
                 }
+            },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#9aa0a6' }
+                },
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: 5,
+                    ticks: { precision: 0, color: '#9aa0a6' },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                }
             }
-        });
-    }
+        }
+    });
+};
+
+const renderCharts = (dailyMetrics = [], monthlyMetrics = []) => {
+    populateDailyMetrics(dailyMetrics);
+    renderDailySalesChart();
+    renderDailyRevenueChart();
+    renderMonthlySalesChart(monthlyMetrics);
 };
 
 const renderLeaderboard = (leaderboardMetrics) => {
@@ -649,13 +827,314 @@ const renderComparison = (performance) => {
 };
 
 
-// -- SALESMAN DRILL-DOWN MODAL --
+// -- SALESMAN DRILL-DOWN MODAL & SALES HISTORY --
+
+const repDailyMetricsCache = {};
+let currentModalRep = null;
+let currentModalRank = null;
+let repHistoryGranularity = 'weekly'; // Default: 'weekly'
+
+// Fetch leaderboard metrics for a single date from Supabase RPC
+const fetchLeaderboardForDate = async (dateStr) => {
+    if (repDailyMetricsCache[dateStr]) {
+        return repDailyMetricsCache[dateStr];
+    }
+    if (!window.__DASHBOARD_CONFIG__ || !window.__DASHBOARD_CONFIG__.SUPABASE_URL || !window.__DASHBOARD_CONFIG__.SUPABASE_KEY) {
+        return [];
+    }
+    const { SUPABASE_URL, SUPABASE_KEY } = window.__DASHBOARD_CONFIG__;
+    const apiUrl = `${SUPABASE_URL}/rest/v1/rpc/get_full_sales_dashboard`;
+
+    try {
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+                'apikey': SUPABASE_KEY,
+                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ report_date: dateStr })
+        });
+        if (!response.ok) return [];
+        const data = await response.json();
+        const lb = (data && data.sales && data.sales.leaderboard_metrics) || [];
+        repDailyMetricsCache[dateStr] = lb;
+        return lb;
+    } catch (e) {
+        console.warn(`Failed to fetch history for ${dateStr}:`, e);
+        return [];
+    }
+};
+
+// Fetch a list of dates concurrently with a pool limit
+const fetchAllDatesLeaderboard = async (dateList, maxConcurrent = 15) => {
+    const datesToFetch = dateList.filter(d => !repDailyMetricsCache[d]);
+    if (datesToFetch.length === 0) return;
+
+    let index = 0;
+    const workers = Array.from({ length: Math.min(maxConcurrent, datesToFetch.length) }, async () => {
+        while (index < datesToFetch.length) {
+            const curIdx = index++;
+            const dateStr = datesToFetch[curIdx];
+            await fetchLeaderboardForDate(dateStr);
+        }
+    });
+    await Promise.all(workers);
+};
+
+// Render the historical sales trend chart for a representative (supports Weekly aggregation & Daily view)
+const renderRepHistoryChart = async (repName) => {
+    const dateInput = document.getElementById('report-date');
+    const endDate = dateInput ? clampDate(dateInput.value) : DATA_BOUNDS.DEFAULT_DATE;
+    const startDate = DATA_BOUNDS.MIN_DATE; // Jan 1, 2026
+
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const formatDateText = (dStr) => {
+        const dt = new Date(dStr + 'T00:00:00');
+        return `${dt.getDate()} ${monthNames[dt.getMonth()]}`;
+    };
+
+    const loadingEl = document.getElementById('rep-history-loading');
+    const canvas = document.getElementById('rep-history-chart');
+    if (!canvas) return;
+
+    const allDates = generateDateRange(startDate, endDate);
+
+    // If some dates are not in cache, show loading spinner
+    const uncached = allDates.some(d => !repDailyMetricsCache[d]);
+    if (uncached && loadingEl) {
+        loadingEl.style.display = 'flex';
+    }
+
+    // Fetch dates up to selected endDate
+    await fetchAllDatesLeaderboard(allDates);
+
+    // If modal was closed or switched to a different rep while fetching, discard
+    if (currentModalRep !== repName) return;
+
+    if (loadingEl) {
+        loadingEl.style.display = 'none';
+    }
+
+    const normRepName = repName.trim().toLowerCase();
+
+    // 1. Build raw daily timeline records
+    const dailyRecords = allDates.map(dateStr => {
+        const dt = new Date(dateStr + 'T00:00:00');
+        const dayMetrics = repDailyMetricsCache[dateStr] || [];
+        const repEntry = dayMetrics.find(r => (r.sales_representative || '').trim().toLowerCase() === normRepName);
+        return {
+            dateStr,
+            dt,
+            sales: repEntry ? (repEntry.today_sales || 0) : 0,
+            revenue: repEntry ? (repEntry.today_revenue || 0) : 0
+        };
+    });
+
+    // Check if rep has any recorded sales in the period
+    const firstActiveIndex = dailyRecords.findIndex(d => d.sales > 0);
+    const hasAnySales = firstActiveIndex !== -1;
+
+    let chartType = 'bar';
+    let labels = [];
+    let salesData = [];
+    let revenueData = [];
+    let tooltipTitleFn = null;
+    let tooltipLabelFn = null;
+    let rangeBadgeText = '';
+
+    if (repHistoryGranularity === 'weekly') {
+        // --- WEEKLY AGGREGATION (Default) ---
+        // Group into 7-day calendar buckets
+        let weeks = [];
+        for (let i = 0; i < dailyRecords.length; i += 7) {
+            const chunk = dailyRecords.slice(i, i + 7);
+            const wSales = chunk.reduce((sum, item) => sum + item.sales, 0);
+            const wRev = chunk.reduce((sum, item) => sum + item.revenue, 0);
+            weeks.push({
+                startDate: chunk[0].dateStr,
+                endDate: chunk[chunk.length - 1].dateStr,
+                sales: wSales,
+                revenue: wRev,
+                hasActive: wSales > 0
+            });
+        }
+
+        // Auto-trim leading empty weeks (keep at most 1 buffer week for context if rep started late)
+        if (hasAnySales) {
+            const firstActiveWeekIdx = weeks.findIndex(w => w.sales > 0);
+            const trimStartIdx = Math.max(0, firstActiveWeekIdx - 1);
+            weeks = weeks.slice(trimStartIdx);
+        }
+
+        // Update range badge
+        if (weeks.length > 0) {
+            const startStr = weeks[0].startDate;
+            const endStr = weeks[weeks.length - 1].endDate;
+            rangeBadgeText = `${formatDateText(startStr)} — ${formatDateText(endStr)}, 2026`;
+        } else {
+            rangeBadgeText = `${formatDateText(startDate)} — ${formatDateText(endDate)}, 2026`;
+        }
+
+        labels = weeks.map(w => formatDateText(w.startDate));
+        salesData = weeks.map(w => w.sales);
+        revenueData = weeks.map(w => w.revenue);
+
+        chartType = 'bar';
+        tooltipTitleFn = (items) => {
+            if (!items || !items.length) return '';
+            const idx = items[0].dataIndex;
+            const w = weeks[idx];
+            if (!w) return items[0].label;
+            const dtStart = new Date(w.startDate + 'T00:00:00');
+            const dtEnd = new Date(w.endDate + 'T00:00:00');
+            return `${dtStart.getDate()} ${monthNames[dtStart.getMonth()]} – ${dtEnd.getDate()} ${monthNames[dtEnd.getMonth()]} ${dtEnd.getFullYear()}`;
+        };
+        tooltipLabelFn = (ctx) => {
+            const val = ctx.raw || 0;
+            const idx = ctx.dataIndex;
+            const rev = revenueData[idx] || 0;
+            return `Sales: ${formatNumber(val)} orders (${formatCurrency(rev)})`;
+        };
+
+    } else {
+        // --- DAILY VIEW ---
+        // Auto-trim long leading zero period (keep up to 3 buffer days before first sale)
+        let visibleDaily = dailyRecords;
+        if (hasAnySales && firstActiveIndex > 7) {
+            const trimDailyStartIdx = Math.max(0, firstActiveIndex - 3);
+            visibleDaily = dailyRecords.slice(trimDailyStartIdx);
+        }
+
+        const startStr = visibleDaily[0].dateStr;
+        const endStr = visibleDaily[visibleDaily.length - 1].dateStr;
+        rangeBadgeText = `${formatDateText(startStr)} — ${formatDateText(endStr)}, 2026`;
+
+        labels = visibleDaily.map(d => `${d.dt.getDate()} ${monthNames[d.dt.getMonth()]}`);
+        salesData = visibleDaily.map(d => d.sales);
+        revenueData = visibleDaily.map(d => d.revenue);
+
+        chartType = 'line';
+        tooltipTitleFn = (items) => {
+            if (!items || !items.length) return '';
+            const idx = items[0].dataIndex;
+            const d = visibleDaily[idx];
+            if (!d) return items[0].label;
+            return `${d.dt.getDate()} ${monthNames[d.dt.getMonth()]} ${d.dt.getFullYear()}`;
+        };
+        tooltipLabelFn = (ctx) => {
+            const val = ctx.raw || 0;
+            const idx = ctx.dataIndex;
+            const rev = revenueData[idx] || 0;
+            return `Sales: ${formatNumber(val)} orders (${formatCurrency(rev)})`;
+        };
+    }
+
+    const rangeBadge = document.getElementById('rep-history-range');
+    if (rangeBadge) {
+        rangeBadge.textContent = rangeBadgeText;
+    }
+
+    // Sync toggle button active classes
+    document.querySelectorAll('.rep-toggle-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.granularity === repHistoryGranularity);
+    });
+
+    safeDestroyChart('repHistory');
+
+    const isBar = chartType === 'bar';
+    const datasetConfig = isBar ? {
+        label: 'Weekly Sales',
+        data: salesData,
+        backgroundColor: '#3b82f6',
+        borderRadius: 4,
+        hoverBackgroundColor: '#60a5fa'
+    } : {
+        label: 'Daily Sales',
+        data: salesData,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.18)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: salesData.length > 50 ? 0 : 2,
+        pointHoverRadius: 5,
+        pointHoverBackgroundColor: '#3b82f6',
+        pointHoverBorderColor: '#ffffff',
+        pointHoverBorderWidth: 2
+    };
+
+    chartInstances['repHistory'] = new Chart(canvas, {
+        type: chartType,
+        data: {
+            labels: labels,
+            datasets: [datasetConfig]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+                mode: 'index',
+                intersect: false
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(26, 29, 39, 0.95)',
+                    titleColor: '#e8eaed',
+                    bodyColor: '#9aa0a6',
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    borderWidth: 1,
+                    cornerRadius: 8,
+                    padding: 10,
+                    titleFont: { family: "'Inter', sans-serif", size: 13, weight: '600' },
+                    bodyFont: { family: "'JetBrains Mono', monospace", size: 12 },
+                    displayColors: false,
+                    caretSize: 6,
+                    callbacks: {
+                        title: tooltipTitleFn,
+                        label: tooltipLabelFn
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false },
+                    ticks: {
+                        color: '#9aa0a6',
+                        maxTicksLimit: isBar ? 10 : 8,
+                        maxRotation: 0,
+                        autoSkip: true,
+                        font: { size: 11, family: "'Inter', sans-serif" }
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: {
+                        color: '#9aa0a6',
+                        precision: 0,
+                        font: { size: 11, family: "'JetBrains Mono', monospace" }
+                    }
+                }
+            }
+        }
+    });
+};
 
 const openRepModal = (repName, rank) => {
     if (!currentData || !currentData.sales || !currentData.sales.leaderboard_metrics) return;
     const leaderboard = currentData.sales.leaderboard_metrics;
-    const rep = leaderboard.find(r => r.sales_representative === repName);
+    const rep = leaderboard.find(r => (r.sales_representative || '').trim().toLowerCase() === (repName || '').trim().toLowerCase());
     if (!rep) return;
+
+    currentModalRep = rep.sales_representative;
+    currentModalRank = rank;
+
+    // Cache current date's leaderboard metrics if not already cached
+    const dateInput = document.getElementById('report-date');
+    const curDate = dateInput ? clampDate(dateInput.value) : DATA_BOUNDS.DEFAULT_DATE;
+    repDailyMetricsCache[curDate] = leaderboard;
 
     // Compute team totals for contribution %
     const teamMtdSales = leaderboard.reduce((s, r) => s + (r.mtd_sales || 0), 0);
@@ -670,7 +1149,7 @@ const openRepModal = (repName, rank) => {
     const mtdAOV = rep.mtd_sales > 0 ? rep.mtd_revenue / rep.mtd_sales : 0;
 
     // Populate header
-    document.querySelector('.rep-modal-name').textContent = repName;
+    document.querySelector('.rep-modal-name').textContent = rep.sales_representative;
     document.querySelector('.rep-modal-rank').textContent = `Rank #${rank} of ${leaderboard.length} representatives`;
 
     // Populate stat cards
@@ -748,6 +1227,9 @@ const openRepModal = (repName, rank) => {
         </div>
     `;
 
+    // Render historical sales trend
+    renderRepHistoryChart(rep.sales_representative);
+
     // Show modal
     const overlay = document.getElementById('rep-modal');
     overlay.style.display = 'flex';
@@ -755,10 +1237,16 @@ const openRepModal = (repName, rank) => {
 };
 
 const closeRepModal = () => {
+    currentModalRep = null;
+    currentModalRank = null;
+    safeDestroyChart('repHistory');
     const overlay = document.getElementById('rep-modal');
     overlay.style.display = 'none';
     document.body.style.overflow = '';
 };
+
+window.openRepModal = openRepModal;
+window.closeRepModal = closeRepModal;
 
 // -- CSV EXPORT --
 
@@ -873,6 +1361,11 @@ const fetchDashboard = async (date) => {
 
         currentData = data;
 
+        // Cache the leaderboard metrics for this date
+        if (data.sales && data.sales.leaderboard_metrics) {
+            repDailyMetricsCache[clampedDate] = data.sales.leaderboard_metrics;
+        }
+
         // Render sections
         renderKPIs(data.sales.kpi_cards, data.performance);
         renderCharts(data.sales.daily_metrics || [], data.sales.monthly_metrics || []);
@@ -880,6 +1373,11 @@ const fetchDashboard = async (date) => {
         renderProducts(data.products || {});
         renderDestinations(data.destinations || {});
         renderComparison(data.performance || {});
+
+        // If rep modal is open, re-render with new report date
+        if (currentModalRep) {
+            openRepModal(currentModalRep, currentModalRank || 1);
+        }
 
         showDashboard();
 
@@ -922,7 +1420,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Chart Range Selector Bindings
-    const setupDailyRange = (startId, endId) => {
+    const setupDailyRange = (startId, endId, chartType) => {
         const startEl = document.getElementById(startId);
         const endEl = document.getElementById(endId);
         if (!startEl || !endEl) return;
@@ -938,8 +1436,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (sVal > eVal) sVal = eVal;
             startEl.value = sVal;
             endEl.value = eVal;
-            if (currentData && currentData.sales) {
-                renderCharts(currentData.sales.daily_metrics || [], currentData.sales.monthly_metrics || []);
+            if (chartType === 'sales') {
+                renderDailySalesChart();
+            } else if (chartType === 'revenue') {
+                renderDailyRevenueChart();
             }
         };
 
@@ -964,7 +1464,7 @@ document.addEventListener('DOMContentLoaded', () => {
             startEl.value = sVal;
             endEl.value = eVal;
             if (currentData && currentData.sales) {
-                renderCharts(currentData.sales.daily_metrics || [], currentData.sales.monthly_metrics || []);
+                renderMonthlySalesChart(currentData.sales.monthly_metrics || []);
             }
         };
 
@@ -972,8 +1472,8 @@ document.addEventListener('DOMContentLoaded', () => {
         endEl.addEventListener('change', onRangeChange);
     };
 
-    setupDailyRange('daily-sales-start', 'daily-sales-end');
-    setupDailyRange('daily-revenue-start', 'daily-revenue-end');
+    setupDailyRange('daily-sales-start', 'daily-sales-end', 'sales');
+    setupDailyRange('daily-revenue-start', 'daily-revenue-end', 'revenue');
     setupMonthlyRange('monthly-sales-start', 'monthly-sales-end');
     
     if (retryBtn) {
@@ -1005,6 +1505,21 @@ document.addEventListener('DOMContentLoaded', () => {
     if (exportBtn) {
         exportBtn.addEventListener('click', exportLeaderboardCSV);
     }
+
+    // Sales History granularity toggles
+    document.querySelectorAll('.rep-toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const gran = btn.dataset.granularity;
+            if (!gran || gran === repHistoryGranularity) return;
+            repHistoryGranularity = gran;
+            document.querySelectorAll('.rep-toggle-btn').forEach(b => {
+                b.classList.toggle('active', b === btn);
+            });
+            if (currentModalRep) {
+                renderRepHistoryChart(currentModalRep);
+            }
+        });
+    });
 
     // Initial fetch with default date (May 25, 2026)
     fetchDashboard(DATA_BOUNDS.DEFAULT_DATE);
