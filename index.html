@@ -36,7 +36,7 @@
         </div>
         <div class="header-right">
           <label for="report-date" class="date-label">Report Date</label>
-          <input type="date" id="report-date" class="date-input" min="2026-01-01" max="2026-05-25" value="2026-05-25">
+          <input type="date" id="report-date" class="date-input" min="2026-01-01" max="2026-05-31" value="2026-03-15">
           <button id="export-csv-btn" class="export-btn" title="Export leaderboard as CSV">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             Export CSV
@@ -69,9 +69,9 @@
                 <p class="chart-subtitle">Orders per day this month</p>
               </div>
               <div class="chart-controls">
-                <input type="date" id="daily-sales-start" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-01" aria-label="Daily Sales Start Date">
+                <input type="date" id="daily-sales-start" class="chart-date-input" min="2026-01-01" max="2026-05-31" value="2026-05-01" aria-label="Daily Sales Start Date">
                 <span class="range-sep">to</span>
-                <input type="date" id="daily-sales-end" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-25" aria-label="Daily Sales End Date">
+                <input type="date" id="daily-sales-end" class="chart-date-input" min="2026-01-01" max="2026-05-31" value="2026-05-25" aria-label="Daily Sales End Date">
               </div>
             </div>
             <div class="chart-container"><canvas id="daily-sales-chart"></canvas></div>
@@ -83,9 +83,9 @@
                 <p class="chart-subtitle">Revenue per day this month</p>
               </div>
               <div class="chart-controls">
-                <input type="date" id="daily-revenue-start" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-01" aria-label="Daily Revenue Start Date">
+                <input type="date" id="daily-revenue-start" class="chart-date-input" min="2026-01-01" max="2026-05-31" value="2026-05-01" aria-label="Daily Revenue Start Date">
                 <span class="range-sep">to</span>
-                <input type="date" id="daily-revenue-end" class="chart-date-input" min="2026-01-01" max="2026-05-25" value="2026-05-25" aria-label="Daily Revenue End Date">
+                <input type="date" id="daily-revenue-end" class="chart-date-input" min="2026-01-01" max="2026-05-31" value="2026-05-25" aria-label="Daily Revenue End Date">
               </div>
             </div>
             <div class="chart-container"><canvas id="daily-revenue-chart"></canvas></div>

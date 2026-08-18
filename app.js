@@ -3,8 +3,8 @@
 // -- DATA BOUNDARIES & CONSTANTS --
 const DATA_BOUNDS = {
     MIN_DATE: '2026-01-01',
-    MAX_DATE: '2026-05-25',
-    DEFAULT_DATE: '2026-05-25',
+    MAX_DATE: '2026-05-31',
+    DEFAULT_DATE: '2026-03-15',
     MIN_MONTH: '2026-01',
     MAX_MONTH: '2026-05'
 };
@@ -727,12 +727,12 @@ const renderDestinations = (destinations, products) => {
     const topDest = destinations.top_destinations.slice(0, 10);
     const labels = topDest.map(d => d.destination_name);
 
-    // Calculate eSIM and Plastic SIM breakdown per destination
+    // Calculate dynamic eSIM and Plastic SIM breakdown per destination
     const simSummary = (products && products.sim_type_summary) || [];
     const esimSummary = simSummary.find(s => (s.sim_type || '').toLowerCase().includes('esim'));
     const plasticSummary = simSummary.find(s => (s.sim_type || '').toLowerCase().includes('plastic'));
-    const totalEsimSales = esimSummary ? (esimSummary.sales || 0) : 0;
-    const totalPlasticSales = plasticSummary ? (plasticSummary.sales || 0) : 0;
+    const totalEsimSales = esimSummary ? Math.max(0, esimSummary.sales || 0) : 0;
+    const totalPlasticSales = plasticSummary ? Math.max(0, plasticSummary.sales || 0) : 0;
     const totalSimSales = totalEsimSales + totalPlasticSales || 1;
     const globalEsimRatio = totalEsimSales / totalSimSales;
 
@@ -740,31 +740,17 @@ const renderDestinations = (destinations, products) => {
     const plasticData = [];
 
     topDest.forEach(d => {
-        const total = d.orders || 0;
+        const total = Math.max(0, d.orders || 0);
         let esim = 0;
         let plastic = 0;
 
         if (d.esim_orders !== undefined && d.plastic_sim_orders !== undefined) {
-            esim = d.esim_orders;
-            plastic = d.plastic_sim_orders;
+            esim = Math.max(0, d.esim_orders);
+            plastic = Math.max(0, d.plastic_sim_orders);
         } else {
-            const normName = (d.destination_name || '').toLowerCase();
-            if (normName === 'thailand') {
-                const baseEsim = 190;
-                const basePlastic = 275;
-                const remaining = Math.max(0, total - (baseEsim + basePlastic));
-                esim = baseEsim + Math.round(remaining * globalEsimRatio);
-                plastic = total - esim;
-            } else if (normName === 'vietnam') {
-                const baseEsim = 33;
-                const basePlastic = 12;
-                const remaining = Math.max(0, total - (baseEsim + basePlastic));
-                esim = baseEsim + Math.round(remaining * globalEsimRatio);
-                plastic = total - esim;
-            } else {
-                esim = Math.round(total * globalEsimRatio);
-                plastic = total - esim;
-            }
+            // Dynamically allocate non-negative integer orders bounded within [0, total]
+            esim = Math.min(total, Math.max(0, Math.round(total * globalEsimRatio)));
+            plastic = Math.max(0, total - esim);
         }
 
         esimData.push(esim);
@@ -828,10 +814,10 @@ const renderDestinations = (destinations, products) => {
                     displayColors: true,
                     callbacks: {
                         title: (items) => (items && items.length ? items[0].label : ''),
-                        label: (ctx) => ` ${ctx.dataset.label}: ${formatNumber(ctx.raw)} orders`,
+                        label: (ctx) => ` ${ctx.dataset.label}: ${formatNumber(Math.max(0, ctx.raw))} orders`,
                         afterBody: (items) => {
                             if (!items || !items.length) return '';
-                            const total = items.reduce((sum, item) => sum + (item.raw || 0), 0);
+                            const total = items.reduce((sum, item) => sum + Math.max(0, item.raw || 0), 0);
                             return ` Total: ${formatNumber(total)} orders`;
                         }
                     }
@@ -843,7 +829,12 @@ const renderDestinations = (destinations, products) => {
             scales: {
                 x: {
                     stacked: true,
-                    ticks: { color: '#9aa0a6' },
+                    beginAtZero: true,
+                    min: 0,
+                    ticks: {
+                        color: '#9aa0a6',
+                        precision: 0
+                    },
                     grid: { color: 'rgba(255, 255, 255, 0.05)' }
                 },
                 y: {
